@@ -1,0 +1,18 @@
+# Railway Configuration for PDF to JSON Converter
+
+[build]
+# Use Dockerfile for building
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Number of replicas
+numReplicas = 1
+
+# Health check configuration
+healthcheckPath = "/health"
+healthcheckTimeout = 60
+
+# Restart policy
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

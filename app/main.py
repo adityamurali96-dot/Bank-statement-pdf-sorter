@@ -18,7 +18,8 @@ from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 # Configure logging before any other imports
@@ -194,6 +195,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Configure templates
+templates_dir = Path(__file__).parent / "templates"
+templates = Jinja2Templates(directory=str(templates_dir))
+
 
 # === Exception Handlers ===
 
@@ -265,9 +270,15 @@ async def request_logging_middleware(request: Request, call_next):
 
 # === API Endpoints ===
 
-@app.get("/", response_model=Dict[str, str])
-async def root():
-    """Root endpoint with API information"""
+@app.get("/", response_class=HTMLResponse)
+async def root(request: Request):
+    """Serve the upload UI"""
+    return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/api", response_model=Dict[str, str])
+async def api_info():
+    """API information endpoint"""
     return {
         "message": "PDF to JSON Converter API",
         "version": "1.0.0",

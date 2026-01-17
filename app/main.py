@@ -462,6 +462,7 @@ async def convert_pdf_to_json(
             "filename": file.filename,
             "conversion_time_seconds": round(total_duration, 3),
             "document": document_dict,
+            "markdown": markdown_content,  # Full markdown content
             "metadata": {
                 "file_size_bytes": file_size,
                 "conversion_timestamp": datetime.utcnow().isoformat() + "Z",
@@ -512,13 +513,13 @@ async def convert_pdf_to_markdown(
         if not response_body.get("success"):
             return json_response
 
-        # Extract markdown from successful response
+        # Extract full markdown from successful response
         return JSONResponse(content={
             "success": True,
             "request_id": request_id,
             "filename": file.filename,
-            "markdown": response_body.get("metadata", {}).get("markdown_preview", ""),
-            "full_markdown_in_document": True,
+            "markdown": response_body.get("markdown", ""),
+            "page_count": response_body.get("metadata", {}).get("page_count", 0),
         })
 
     return json_response

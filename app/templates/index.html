@@ -549,7 +549,7 @@
                     content = JSON.stringify(conversionResult.document, null, 2);
                     break;
                 case 'markdown':
-                    content = conversionResult.metadata?.markdown_preview || 'No markdown preview available';
+                    content = conversionResult.markdown || 'No markdown content available';
                     break;
                 case 'metadata':
                     content = JSON.stringify(conversionResult.metadata, null, 2);

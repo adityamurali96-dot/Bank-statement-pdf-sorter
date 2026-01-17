@@ -232,6 +232,7 @@
             margin-bottom: 1rem;
             border-bottom: 1px solid var(--border);
             padding-bottom: 0.5rem;
+            flex-wrap: wrap;
         }
 
         .tab {
@@ -253,6 +254,14 @@
         .tab.active {
             background: var(--primary);
             color: white;
+        }
+
+        .action-bar {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+            flex-wrap: wrap;
         }
 
         .result-content {
@@ -304,7 +313,7 @@
             white-space: pre-wrap;
         }
 
-        .copy-btn {
+        .action-btn {
             padding: 0.5rem 1rem;
             font-size: 0.875rem;
             background: var(--bg);
@@ -312,16 +321,77 @@
             border-radius: 6px;
             cursor: pointer;
             transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
         }
 
-        .copy-btn:hover {
+        .action-btn:hover {
             background: var(--border);
         }
 
-        .copy-btn.copied {
+        .action-btn.copied {
             background: var(--success);
             color: white;
             border-color: var(--success);
+        }
+
+        .action-btn svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .download-section {
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .download-title {
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .download-buttons {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .download-btn {
+            padding: 0.625rem 1rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .download-btn:hover {
+            background: var(--primary-hover);
+        }
+
+        .download-btn svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .download-btn.secondary {
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .download-btn.secondary:hover {
+            background: var(--border);
         }
 
         footer {
@@ -357,6 +427,15 @@
                 flex-direction: column;
                 align-items: flex-start;
                 gap: 0.75rem;
+            }
+
+            .download-buttons {
+                flex-direction: column;
+            }
+
+            .download-btn {
+                width: 100%;
+                justify-content: center;
             }
         }
     </style>
@@ -418,15 +497,68 @@
                     <div class="tabs">
                         <button class="tab active" data-tab="json">JSON</button>
                         <button class="tab" data-tab="markdown">Markdown</button>
+                        <button class="tab" data-tab="csv">CSV</button>
                         <button class="tab" data-tab="metadata">Metadata</button>
                     </div>
 
-                    <div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
-                        <button class="copy-btn" id="copy-btn">Copy to Clipboard</button>
+                    <div class="action-bar">
+                        <button class="action-btn" id="copy-btn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                            <span>Copy</span>
+                        </button>
+                        <button class="action-btn" id="download-current-btn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            <span>Download</span>
+                        </button>
                     </div>
 
                     <div class="result-content">
                         <pre id="result-json"></pre>
+                    </div>
+
+                    <div class="download-section">
+                        <div class="download-title">Download All Formats</div>
+                        <div class="download-buttons">
+                            <button class="download-btn" id="download-json">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                </svg>
+                                JSON
+                            </button>
+                            <button class="download-btn" id="download-markdown">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                </svg>
+                                Markdown
+                            </button>
+                            <button class="download-btn" id="download-csv">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                </svg>
+                                CSV
+                            </button>
+                            <button class="download-btn secondary" id="download-metadata">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                </svg>
+                                Metadata
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -462,17 +594,111 @@
         const errorTrace = document.getElementById('error-trace');
         const resultJson = document.getElementById('result-json');
         const copyBtn = document.getElementById('copy-btn');
+        const downloadCurrentBtn = document.getElementById('download-current-btn');
         const tabs = document.querySelectorAll('.tab');
 
         let selectedFile = null;
         let conversionResult = null;
         let currentTab = 'json';
+        let csvContent = null;
 
         // Format file size
         function formatFileSize(bytes) {
             if (bytes < 1024) return bytes + ' B';
             if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
             return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        // Get base filename without extension
+        function getBaseFilename() {
+            if (!selectedFile) return 'document';
+            return selectedFile.name.replace(/\.pdf$/i, '');
+        }
+
+        // Convert document to CSV
+        function generateCSV(data) {
+            const rows = [];
+            const document = data.document;
+
+            // Add header row
+            rows.push(['Page', 'Type', 'Content']);
+
+            // Extract text content from the document
+            if (document.texts) {
+                document.texts.forEach((text, idx) => {
+                    const pageNum = text.prov?.[0]?.page_no || 1;
+                    const content = text.text || '';
+                    if (content.trim()) {
+                        rows.push([pageNum, 'text', content.replace(/"/g, '""')]);
+                    }
+                });
+            }
+
+            // Extract tables if present
+            if (document.tables) {
+                document.tables.forEach((table, tableIdx) => {
+                    const pageNum = table.prov?.[0]?.page_no || 1;
+
+                    // Try to extract table data
+                    if (table.data && table.data.table_cells) {
+                        // Group cells by row
+                        const rowMap = {};
+                        table.data.table_cells.forEach(cell => {
+                            const rowIdx = cell.row_span?.[0] || cell.start_row_offset_idx || 0;
+                            if (!rowMap[rowIdx]) rowMap[rowIdx] = [];
+                            rowMap[rowIdx].push({
+                                col: cell.col_span?.[0] || cell.start_col_offset_idx || 0,
+                                text: cell.text || ''
+                            });
+                        });
+
+                        // Sort and output rows
+                        Object.keys(rowMap).sort((a, b) => a - b).forEach(rowIdx => {
+                            const cells = rowMap[rowIdx].sort((a, b) => a.col - b.col);
+                            const rowContent = cells.map(c => c.text).join(' | ');
+                            rows.push([pageNum, 'table', rowContent.replace(/"/g, '""')]);
+                        });
+                    } else if (table.text) {
+                        rows.push([pageNum, 'table', table.text.replace(/"/g, '""')]);
+                    }
+                });
+            }
+
+            // If no structured data, try to extract from markdown
+            if (rows.length === 1 && data.markdown) {
+                const lines = data.markdown.split('\n');
+                let currentPage = 1;
+                lines.forEach(line => {
+                    if (line.trim()) {
+                        // Check for page markers
+                        const pageMatch = line.match(/^#+\s*Page\s*(\d+)/i);
+                        if (pageMatch) {
+                            currentPage = parseInt(pageMatch[1]);
+                        } else {
+                            const type = line.startsWith('|') ? 'table' : 'text';
+                            rows.push([currentPage, type, line.replace(/"/g, '""')]);
+                        }
+                    }
+                });
+            }
+
+            // Convert to CSV string
+            return rows.map(row =>
+                row.map(cell => `"${cell}"`).join(',')
+            ).join('\n');
+        }
+
+        // Download file helper
+        function downloadFile(content, filename, mimeType) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         }
 
         // Update file display
@@ -551,6 +777,12 @@
                 case 'markdown':
                     content = conversionResult.markdown || 'No markdown content available';
                     break;
+                case 'csv':
+                    if (!csvContent) {
+                        csvContent = generateCSV(conversionResult);
+                    }
+                    content = csvContent;
+                    break;
                 case 'metadata':
                     content = JSON.stringify(conversionResult.metadata, null, 2);
                     break;
@@ -558,19 +790,84 @@
             resultJson.textContent = content;
         }
 
+        // Get current content and file extension
+        function getCurrentContent() {
+            let content = '';
+            let ext = '';
+            let mimeType = '';
+
+            switch (currentTab) {
+                case 'json':
+                    content = JSON.stringify(conversionResult.document, null, 2);
+                    ext = 'json';
+                    mimeType = 'application/json';
+                    break;
+                case 'markdown':
+                    content = conversionResult.markdown || '';
+                    ext = 'md';
+                    mimeType = 'text/markdown';
+                    break;
+                case 'csv':
+                    content = csvContent || generateCSV(conversionResult);
+                    ext = 'csv';
+                    mimeType = 'text/csv';
+                    break;
+                case 'metadata':
+                    content = JSON.stringify(conversionResult.metadata, null, 2);
+                    ext = 'json';
+                    mimeType = 'application/json';
+                    break;
+            }
+
+            return { content, ext, mimeType };
+        }
+
         // Copy to clipboard
         copyBtn.addEventListener('click', async () => {
             try {
                 await navigator.clipboard.writeText(resultJson.textContent);
-                copyBtn.textContent = 'Copied!';
+                copyBtn.querySelector('span').textContent = 'Copied!';
                 copyBtn.classList.add('copied');
                 setTimeout(() => {
-                    copyBtn.textContent = 'Copy to Clipboard';
+                    copyBtn.querySelector('span').textContent = 'Copy';
                     copyBtn.classList.remove('copied');
                 }, 2000);
             } catch (err) {
                 console.error('Failed to copy:', err);
             }
+        });
+
+        // Download current tab
+        downloadCurrentBtn.addEventListener('click', () => {
+            if (!conversionResult) return;
+            const { content, ext, mimeType } = getCurrentContent();
+            const filename = `${getBaseFilename()}_${currentTab}.${ext}`;
+            downloadFile(content, filename, mimeType);
+        });
+
+        // Download buttons
+        document.getElementById('download-json').addEventListener('click', () => {
+            if (!conversionResult) return;
+            const content = JSON.stringify(conversionResult.document, null, 2);
+            downloadFile(content, `${getBaseFilename()}.json`, 'application/json');
+        });
+
+        document.getElementById('download-markdown').addEventListener('click', () => {
+            if (!conversionResult) return;
+            const content = conversionResult.markdown || '';
+            downloadFile(content, `${getBaseFilename()}.md`, 'text/markdown');
+        });
+
+        document.getElementById('download-csv').addEventListener('click', () => {
+            if (!conversionResult) return;
+            const content = csvContent || generateCSV(conversionResult);
+            downloadFile(content, `${getBaseFilename()}.csv`, 'text/csv');
+        });
+
+        document.getElementById('download-metadata').addEventListener('click', () => {
+            if (!conversionResult) return;
+            const content = JSON.stringify(conversionResult.metadata, null, 2);
+            downloadFile(content, `${getBaseFilename()}_metadata.json`, 'application/json');
         });
 
         // Convert button
@@ -582,6 +879,7 @@
             btnText.textContent = 'Converting...';
             btnSpinner.style.display = 'block';
             resultSection.classList.remove('visible');
+            csvContent = null; // Reset CSV cache
 
             try {
                 const formData = new FormData();

@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF to JSON Converter</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --success: #16a34a;
+            --error: #dc2626;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 1rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .upload-area {
+            border: 2px dashed var(--border);
+            border-radius: 8px;
+            padding: 3rem 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .upload-area:hover,
+        .upload-area.dragover {
+            border-color: var(--primary);
+            background: #f0f7ff;
+        }
+
+        .upload-area.has-file {
+            border-color: var(--success);
+            background: #f0fdf4;
+        }
+
+        .upload-icon {
+            width: 48px;
+            height: 48px;
+            margin-bottom: 1rem;
+            color: var(--text-muted);
+        }
+
+        .upload-text {
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .upload-hint {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+
+        .file-info {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            margin-top: 1rem;
+            padding: 0.75rem 1rem;
+            background: #f0fdf4;
+            border-radius: 6px;
+        }
+
+        .file-info.visible {
+            display: flex;
+        }
+
+        .file-name {
+            font-weight: 500;
+            color: var(--success);
+        }
+
+        .file-size {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        .remove-file {
+            background: none;
+            border: none;
+            color: var(--error);
+            cursor: pointer;
+            padding: 0.25rem;
+            font-size: 1.25rem;
+            line-height: 1;
+        }
+
+        #file-input {
+            display: none;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.875rem 1.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            width: 100%;
+            margin-top: 1.5rem;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: var(--primary-hover);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid transparent;
+            border-top-color: currentColor;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .result-section {
+            display: none;
+        }
+
+        .result-section.visible {
+            display: block;
+        }
+
+        .result-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+
+        .result-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .result-meta {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .status-badge.success {
+            background: #dcfce7;
+            color: var(--success);
+        }
+
+        .status-badge.error {
+            background: #fee2e2;
+            color: var(--error);
+        }
+
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.5rem;
+        }
+
+        .tab {
+            padding: 0.5rem 1rem;
+            background: none;
+            border: none;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .tab:hover {
+            background: var(--bg);
+        }
+
+        .tab.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        .result-content {
+            background: #1e293b;
+            border-radius: 8px;
+            padding: 1rem;
+            overflow-x: auto;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .result-content pre {
+            margin: 0;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.8rem;
+            line-height: 1.5;
+            color: #e2e8f0;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .error-details {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .error-code {
+            font-family: monospace;
+            font-weight: 600;
+            color: var(--error);
+            margin-bottom: 0.5rem;
+        }
+
+        .error-message {
+            margin-bottom: 0.5rem;
+        }
+
+        .error-trace {
+            font-family: monospace;
+            font-size: 0.75rem;
+            background: #1e293b;
+            color: #fca5a5;
+            padding: 0.75rem;
+            border-radius: 4px;
+            margin-top: 0.75rem;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+
+        .copy-btn {
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .copy-btn:hover {
+            background: var(--border);
+        }
+
+        .copy-btn.copied {
+            background: var(--success);
+            color: white;
+            border-color: var(--success);
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 2rem;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        footer a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 640px) {
+            body {
+                padding: 1rem;
+            }
+
+            .card {
+                padding: 1.5rem;
+            }
+
+            .upload-area {
+                padding: 2rem 1rem;
+            }
+
+            .result-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.75rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>PDF to JSON Converter</h1>
+            <p class="subtitle">Upload your bank statement PDF to extract structured data</p>
+        </header>
+
+        <div class="card">
+            <div class="upload-area" id="upload-area">
+                <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                <p class="upload-text">Drop your PDF here or click to browse</p>
+                <p class="upload-hint">Supports PDF files up to 50MB</p>
+            </div>
+
+            <input type="file" id="file-input" accept=".pdf,application/pdf">
+
+            <div class="file-info" id="file-info">
+                <span class="file-name" id="file-name"></span>
+                <span class="file-size" id="file-size"></span>
+                <button class="remove-file" id="remove-file" title="Remove file">&times;</button>
+            </div>
+
+            <button class="btn btn-primary" id="convert-btn" disabled>
+                <span id="btn-text">Convert to JSON</span>
+                <div class="spinner" id="btn-spinner" style="display: none;"></div>
+            </button>
+        </div>
+
+        <div class="result-section" id="result-section">
+            <div class="card">
+                <div class="result-header">
+                    <div>
+                        <span class="result-title">Conversion Result</span>
+                        <span class="status-badge" id="status-badge"></span>
+                    </div>
+                    <div class="result-meta">
+                        <span id="result-time"></span>
+                        <span id="result-pages"></span>
+                    </div>
+                </div>
+
+                <div id="error-display" style="display: none;">
+                    <div class="error-details">
+                        <div class="error-code" id="error-code"></div>
+                        <div class="error-message" id="error-message"></div>
+                        <div class="error-trace" id="error-trace" style="display: none;"></div>
+                    </div>
+                </div>
+
+                <div id="success-display" style="display: none;">
+                    <div class="tabs">
+                        <button class="tab active" data-tab="json">JSON</button>
+                        <button class="tab" data-tab="markdown">Markdown</button>
+                        <button class="tab" data-tab="metadata">Metadata</button>
+                    </div>
+
+                    <div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
+                        <button class="copy-btn" id="copy-btn">Copy to Clipboard</button>
+                    </div>
+
+                    <div class="result-content">
+                        <pre id="result-json"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>Powered by <a href="https://github.com/DS4SD/docling" target="_blank">Docling</a> |
+               <a href="/docs" target="_blank">API Documentation</a> |
+               <a href="/health" target="_blank">Health Check</a>
+            </p>
+        </footer>
+    </div>
+
+    <script>
+        // DOM Elements
+        const uploadArea = document.getElementById('upload-area');
+        const fileInput = document.getElementById('file-input');
+        const fileInfo = document.getElementById('file-info');
+        const fileName = document.getElementById('file-name');
+        const fileSize = document.getElementById('file-size');
+        const removeFile = document.getElementById('remove-file');
+        const convertBtn = document.getElementById('convert-btn');
+        const btnText = document.getElementById('btn-text');
+        const btnSpinner = document.getElementById('btn-spinner');
+        const resultSection = document.getElementById('result-section');
+        const statusBadge = document.getElementById('status-badge');
+        const resultTime = document.getElementById('result-time');
+        const resultPages = document.getElementById('result-pages');
+        const errorDisplay = document.getElementById('error-display');
+        const successDisplay = document.getElementById('success-display');
+        const errorCode = document.getElementById('error-code');
+        const errorMessage = document.getElementById('error-message');
+        const errorTrace = document.getElementById('error-trace');
+        const resultJson = document.getElementById('result-json');
+        const copyBtn = document.getElementById('copy-btn');
+        const tabs = document.querySelectorAll('.tab');
+
+        let selectedFile = null;
+        let conversionResult = null;
+        let currentTab = 'json';
+
+        // Format file size
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        // Update file display
+        function updateFileDisplay(file) {
+            if (file) {
+                selectedFile = file;
+                fileName.textContent = file.name;
+                fileSize.textContent = formatFileSize(file.size);
+                fileInfo.classList.add('visible');
+                uploadArea.classList.add('has-file');
+                convertBtn.disabled = false;
+            } else {
+                selectedFile = null;
+                fileInfo.classList.remove('visible');
+                uploadArea.classList.remove('has-file');
+                convertBtn.disabled = true;
+            }
+        }
+
+        // Upload area click
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        // File input change
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file && file.type === 'application/pdf') {
+                updateFileDisplay(file);
+            }
+        });
+
+        // Drag and drop
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file && file.type === 'application/pdf') {
+                updateFileDisplay(file);
+            }
+        });
+
+        // Remove file
+        removeFile.addEventListener('click', (e) => {
+            e.stopPropagation();
+            fileInput.value = '';
+            updateFileDisplay(null);
+        });
+
+        // Tab switching
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                tabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                currentTab = tab.dataset.tab;
+                displayResult();
+            });
+        });
+
+        // Display result based on current tab
+        function displayResult() {
+            if (!conversionResult) return;
+
+            let content = '';
+            switch (currentTab) {
+                case 'json':
+                    content = JSON.stringify(conversionResult.document, null, 2);
+                    break;
+                case 'markdown':
+                    content = conversionResult.metadata?.markdown_preview || 'No markdown preview available';
+                    break;
+                case 'metadata':
+                    content = JSON.stringify(conversionResult.metadata, null, 2);
+                    break;
+            }
+            resultJson.textContent = content;
+        }
+
+        // Copy to clipboard
+        copyBtn.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(resultJson.textContent);
+                copyBtn.textContent = 'Copied!';
+                copyBtn.classList.add('copied');
+                setTimeout(() => {
+                    copyBtn.textContent = 'Copy to Clipboard';
+                    copyBtn.classList.remove('copied');
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy:', err);
+            }
+        });
+
+        // Convert button
+        convertBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            // Update UI for loading state
+            convertBtn.disabled = true;
+            btnText.textContent = 'Converting...';
+            btnSpinner.style.display = 'block';
+            resultSection.classList.remove('visible');
+
+            try {
+                const formData = new FormData();
+                formData.append('file', selectedFile);
+
+                const response = await fetch('/convert', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                // Show result section
+                resultSection.classList.add('visible');
+
+                if (data.success) {
+                    conversionResult = data;
+
+                    // Update status badge
+                    statusBadge.textContent = 'Success';
+                    statusBadge.className = 'status-badge success';
+
+                    // Update meta info
+                    resultTime.textContent = `${data.conversion_time_seconds}s`;
+                    resultPages.textContent = `${data.metadata?.page_count || 0} pages`;
+
+                    // Show success display
+                    errorDisplay.style.display = 'none';
+                    successDisplay.style.display = 'block';
+
+                    // Reset to JSON tab and display
+                    tabs.forEach(t => t.classList.remove('active'));
+                    tabs[0].classList.add('active');
+                    currentTab = 'json';
+                    displayResult();
+                } else {
+                    // Show error
+                    statusBadge.textContent = 'Error';
+                    statusBadge.className = 'status-badge error';
+                    resultTime.textContent = '';
+                    resultPages.textContent = '';
+
+                    errorDisplay.style.display = 'block';
+                    successDisplay.style.display = 'none';
+
+                    const error = data.error || {};
+                    errorCode.textContent = error.error_code || 'UNKNOWN_ERROR';
+                    errorMessage.textContent = error.message || 'An unknown error occurred';
+
+                    if (error.details) {
+                        errorMessage.textContent += ` - ${error.details}`;
+                    }
+
+                    if (error.traceback) {
+                        errorTrace.textContent = error.traceback;
+                        errorTrace.style.display = 'block';
+                    } else {
+                        errorTrace.style.display = 'none';
+                    }
+                }
+            } catch (err) {
+                // Network or other error
+                resultSection.classList.add('visible');
+                statusBadge.textContent = 'Error';
+                statusBadge.className = 'status-badge error';
+                resultTime.textContent = '';
+                resultPages.textContent = '';
+
+                errorDisplay.style.display = 'block';
+                successDisplay.style.display = 'none';
+
+                errorCode.textContent = 'NETWORK_ERROR';
+                errorMessage.textContent = `Failed to connect to server: ${err.message}`;
+                errorTrace.style.display = 'none';
+            } finally {
+                // Reset button
+                convertBtn.disabled = false;
+                btnText.textContent = 'Convert to JSON';
+                btnSpinner.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>

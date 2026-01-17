@@ -615,227 +615,75 @@
             return selectedFile.name.replace(/\.pdf$/i, '');
         }
 
-        // Date pattern for bank statements (DD/MM/YYYY, DD-MM-YYYY, DD/MM/YY, etc.)
-        const datePatterns = [
-            /^\d{2}[\/\-]\d{2}[\/\-]\d{4}$/,  // DD/MM/YYYY or DD-MM-YYYY
-            /^\d{2}[\/\-]\d{2}[\/\-]\d{2}$/,  // DD/MM/YY or DD-MM-YY
-            /^\d{2}\s+[A-Za-z]{3}\s+\d{2,4}$/, // DD Mon YYYY
-            /^\d{2}[\/\-][A-Za-z]{3}[\/\-]\d{2,4}$/, // DD/Mon/YYYY
-        ];
-
-        function isDateCell(text) {
-            if (!text || typeof text !== 'string') return false;
-            const trimmed = text.trim();
-            return datePatterns.some(pattern => pattern.test(trimmed));
-        }
-
-        function isAmountCell(text) {
-            if (!text || typeof text !== 'string') return false;
-            const trimmed = text.trim().replace(/,/g, '');
-            // Match amounts like 1234.56, 1,234.56, (1234.56) for negative
-            return /^[\(\-]?\d+\.?\d*\)?$/.test(trimmed) ||
-                   /^\d{1,3}(,\d{3})*(\.\d{2})?$/.test(text.trim());
-        }
-
-        // Convert document to CSV with smart bank statement parsing
+        // Convert document to CSV
         function generateCSV(data) {
+            const rows = [];
             const document = data.document;
-            const allTableRows = [];
 
-            // Extract all table data with proper structure
-            if (document.tables && document.tables.length > 0) {
+            // Add header row
+            rows.push(['Page', 'Type', 'Content']);
+
+            // Extract text content from the document
+            if (document.texts) {
+                document.texts.forEach((text, idx) => {
+                    const pageNum = text.prov?.[0]?.page_no || 1;
+                    const content = text.text || '';
+                    if (content.trim()) {
+                        rows.push([pageNum, 'text', content.replace(/"/g, '""')]);
+                    }
+                });
+            }
+
+            // Extract tables if present
+            if (document.tables) {
                 document.tables.forEach((table, tableIdx) => {
                     const pageNum = table.prov?.[0]?.page_no || 1;
 
+                    // Try to extract table data
                     if (table.data && table.data.table_cells) {
                         // Group cells by row
                         const rowMap = {};
-                        let maxCol = 0;
-
                         table.data.table_cells.forEach(cell => {
-                            const rowIdx = cell.start_row_offset_idx ?? cell.row_span?.[0] ?? 0;
-                            const colIdx = cell.start_col_offset_idx ?? cell.col_span?.[0] ?? 0;
-
-                            if (!rowMap[rowIdx]) rowMap[rowIdx] = {};
-                            rowMap[rowIdx][colIdx] = (cell.text || '').trim();
-                            maxCol = Math.max(maxCol, colIdx);
-                        });
-
-                        // Convert to array format with consistent columns
-                        const numCols = maxCol + 1;
-                        Object.keys(rowMap)
-                            .map(Number)
-                            .sort((a, b) => a - b)
-                            .forEach(rowIdx => {
-                                const rowData = [];
-                                for (let col = 0; col <= maxCol; col++) {
-                                    rowData.push(rowMap[rowIdx][col] || '');
-                                }
-                                allTableRows.push({
-                                    page: pageNum,
-                                    tableIdx: tableIdx,
-                                    rowIdx: rowIdx,
-                                    cells: rowData,
-                                    numCols: rowData.filter(c => c !== '').length
-                                });
+                            const rowIdx = cell.row_span?.[0] || cell.start_row_offset_idx || 0;
+                            if (!rowMap[rowIdx]) rowMap[rowIdx] = [];
+                            rowMap[rowIdx].push({
+                                col: cell.col_span?.[0] || cell.start_col_offset_idx || 0,
+                                text: cell.text || ''
                             });
-                    }
-                });
-            }
-
-            // Detect header row and expected column count
-            let headerRow = null;
-            let expectedCols = 0;
-            const headerKeywords = ['date', 'narration', 'description', 'particulars', 'withdrawal', 'deposit', 'balance', 'debit', 'credit', 'chq', 'ref', 'value'];
-
-            for (const row of allTableRows) {
-                const lowerCells = row.cells.map(c => c.toLowerCase());
-                const matchCount = headerKeywords.filter(kw =>
-                    lowerCells.some(cell => cell.includes(kw))
-                ).length;
-
-                if (matchCount >= 3) {
-                    headerRow = row;
-                    expectedCols = row.cells.length;
-                    break;
-                }
-            }
-
-            // If no header found, try to detect from column structure
-            if (!expectedCols && allTableRows.length > 0) {
-                // Find most common column count
-                const colCounts = {};
-                allTableRows.forEach(row => {
-                    const count = row.cells.filter(c => c !== '').length;
-                    colCounts[count] = (colCounts[count] || 0) + 1;
-                });
-                expectedCols = parseInt(Object.entries(colCounts)
-                    .sort((a, b) => b[1] - a[1])[0]?.[0] || '6');
-            }
-
-            // Process rows: merge continuation lines with previous transaction
-            const processedRows = [];
-            let currentTransaction = null;
-
-            for (const row of allTableRows) {
-                const cells = row.cells;
-                const firstCell = cells[0] || '';
-                const hasDate = isDateCell(firstCell);
-                const isHeader = headerRow && row.rowIdx === headerRow.rowIdx && row.tableIdx === headerRow.tableIdx;
-                const nonEmptyCells = cells.filter(c => c !== '').length;
-
-                // Skip header row (we'll add our own)
-                if (isHeader) {
-                    continue;
-                }
-
-                // Check if this is a complete transaction row (has date in first column)
-                if (hasDate && nonEmptyCells >= Math.floor(expectedCols * 0.5)) {
-                    // Save previous transaction
-                    if (currentTransaction) {
-                        processedRows.push(currentTransaction);
-                    }
-                    // Start new transaction
-                    currentTransaction = {
-                        page: row.page,
-                        cells: [...cells],
-                        originalCols: nonEmptyCells
-                    };
-                }
-                // This is a continuation row (no date, likely multi-line narration)
-                else if (currentTransaction && nonEmptyCells > 0 && nonEmptyCells < Math.floor(expectedCols * 0.5)) {
-                    // Merge with current transaction's narration column
-                    // Find the narration column (usually column 1 or the first text-heavy column)
-                    const narrationCol = 1; // Typically narration is column 1 after date
-
-                    // Append continuation text to narration
-                    const continuationText = cells.filter(c => c !== '').join(' ').trim();
-                    if (continuationText && currentTransaction.cells[narrationCol] !== undefined) {
-                        currentTransaction.cells[narrationCol] += ' ' + continuationText;
-                    }
-                }
-                // Orphan row with some data but no clear parent
-                else if (!currentTransaction && nonEmptyCells > 0) {
-                    // Check if it looks like a data row (has amounts)
-                    const hasAmounts = cells.some(c => isAmountCell(c));
-                    if (hasAmounts || nonEmptyCells >= Math.floor(expectedCols * 0.7)) {
-                        processedRows.push({
-                            page: row.page,
-                            cells: [...cells],
-                            originalCols: nonEmptyCells
                         });
+
+                        // Sort and output rows
+                        Object.keys(rowMap).sort((a, b) => a - b).forEach(rowIdx => {
+                            const cells = rowMap[rowIdx].sort((a, b) => a.col - b.col);
+                            const rowContent = cells.map(c => c.text).join(' | ');
+                            rows.push([pageNum, 'table', rowContent.replace(/"/g, '""')]);
+                        });
+                    } else if (table.text) {
+                        rows.push([pageNum, 'table', table.text.replace(/"/g, '""')]);
                     }
-                }
+                });
             }
 
-            // Don't forget the last transaction
-            if (currentTransaction) {
-                processedRows.push(currentTransaction);
-            }
-
-            // Build CSV output
-            const csvRows = [];
-
-            // Add header
-            if (headerRow) {
-                csvRows.push(headerRow.cells.map(c => c.replace(/"/g, '""')));
-            } else {
-                // Default header for bank statements
-                csvRows.push(['Date', 'Narration', 'Chq/Ref No', 'Value Date', 'Withdrawal', 'Deposit', 'Balance']);
-            }
-
-            // Add data rows
-            processedRows.forEach(row => {
-                // Pad or trim to match header column count
-                const headerCols = csvRows[0].length;
-                let rowCells = [...row.cells];
-
-                // Ensure consistent column count
-                while (rowCells.length < headerCols) {
-                    rowCells.push('');
-                }
-                if (rowCells.length > headerCols) {
-                    rowCells = rowCells.slice(0, headerCols);
-                }
-
-                csvRows.push(rowCells.map(c => (c || '').replace(/"/g, '""')));
-            });
-
-            // If no table data found, fall back to text extraction
-            if (csvRows.length <= 1) {
-                csvRows.length = 0; // Clear
-                csvRows.push(['Page', 'Type', 'Content']);
-
-                if (document.texts) {
-                    document.texts.forEach((text) => {
-                        const pageNum = text.prov?.[0]?.page_no || 1;
-                        const content = (text.text || '').trim();
-                        if (content) {
-                            csvRows.push([pageNum, 'text', content.replace(/"/g, '""')]);
+            // If no structured data, try to extract from markdown
+            if (rows.length === 1 && data.markdown) {
+                const lines = data.markdown.split('\n');
+                let currentPage = 1;
+                lines.forEach(line => {
+                    if (line.trim()) {
+                        // Check for page markers
+                        const pageMatch = line.match(/^#+\s*Page\s*(\d+)/i);
+                        if (pageMatch) {
+                            currentPage = parseInt(pageMatch[1]);
+                        } else {
+                            const type = line.startsWith('|') ? 'table' : 'text';
+                            rows.push([currentPage, type, line.replace(/"/g, '""')]);
                         }
-                    });
-                }
-
-                // Try markdown as fallback
-                if (csvRows.length <= 1 && data.markdown) {
-                    const lines = data.markdown.split('\n');
-                    let currentPage = 1;
-                    lines.forEach(line => {
-                        if (line.trim()) {
-                            const pageMatch = line.match(/^#+\s*Page\s*(\d+)/i);
-                            if (pageMatch) {
-                                currentPage = parseInt(pageMatch[1]);
-                            } else {
-                                const type = line.startsWith('|') ? 'table' : 'text';
-                                csvRows.push([currentPage, type, line.replace(/"/g, '""')]);
-                            }
-                        }
-                    });
-                }
+                    }
+                });
             }
 
             // Convert to CSV string
-            return csvRows.map(row =>
+            return rows.map(row =>
                 row.map(cell => `"${cell}"`).join(',')
             ).join('\n');
         }

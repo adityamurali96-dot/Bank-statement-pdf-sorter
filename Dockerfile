@@ -43,12 +43,29 @@ COPY requirements.txt .
 RUN pip install --upgrade pip && \
     pip install -r requirements.txt
 
+# Pre-download OCR models while still running as root
+# This prevents permission errors when the app tries to download them later
+RUN python -c "from rapidocr import RapidOCR; ocr = RapidOCR()" || true
+
+# Make the rapidocr models directory world-writable as fallback
+RUN chmod -R 777 /usr/local/lib/python3.11/site-packages/rapidocr/models 2>/dev/null || true
+
 # Copy application code
 COPY app/ ./app/
 
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser && \
     chown -R appuser:appuser /app
+
+# Set environment for model caching in user-writable directory
+ENV HF_HOME=/app/.cache/huggingface \
+    TORCH_HOME=/app/.cache/torch \
+    XDG_CACHE_HOME=/app/.cache
+
+# Create cache directories with proper permissions
+RUN mkdir -p /app/.cache/huggingface /app/.cache/torch && \
+    chown -R appuser:appuser /app/.cache
+
 USER appuser
 
 # Expose port (Railway will set PORT env variable)

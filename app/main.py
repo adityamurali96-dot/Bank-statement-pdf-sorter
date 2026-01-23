@@ -177,6 +177,137 @@ def get_error_response(
     )
 
 
+# === Transaction Harmonization ===
+
+import re
+
+# Date patterns for bank statements
+DATE_PATTERNS = [
+    re.compile(r'^\d{2}/\d{2}/\d{4}$'),  # DD/MM/YYYY
+    re.compile(r'^\d{2}/\d{2}/\d{2}$'),  # DD/MM/YY
+    re.compile(r'^\d{2}-\d{2}-\d{4}$'),  # DD-MM-YYYY
+    re.compile(r'^\d{2}-\d{2}-\d{2}$'),  # DD-MM-YY
+    re.compile(r'^\d{2}\s+[A-Za-z]{3}\s+\d{2,4}$'),  # DD Mon YY(YY)
+    re.compile(r'^\d{2}/[A-Za-z]{3}/\d{2,4}$'),  # DD/Mon/YY(YY)
+]
+
+HEADER_KEYWORDS = ['date', 'narration', 'description', 'particulars',
+                   'withdrawal', 'deposit', 'balance', 'debit', 'credit',
+                   'chq', 'ref', 'value', 'amount']
+
+
+def is_date_value(text: str) -> bool:
+    """Check if text matches a date pattern"""
+    if not text:
+        return False
+    text = text.strip()
+    return any(pattern.match(text) for pattern in DATE_PATTERNS)
+
+
+def is_header_row(columns: list) -> bool:
+    """Check if row contains header keywords"""
+    text = ' '.join(str(c).lower() for c in columns)
+    matches = sum(1 for kw in HEADER_KEYWORDS if kw in text)
+    return matches >= 3
+
+
+def harmonize_transactions(document_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Harmonize texts and tables into unified transaction list.
+    Returns dict with header and rows for consistent structure.
+    """
+    all_rows = []
+    detected_header = None
+
+    # Extract from texts (pipe-delimited)
+    for text_item in document_dict.get("texts", []):
+        text_content = text_item.get("text", "")
+        page_num = 1
+        if text_item.get("prov") and len(text_item["prov"]) > 0:
+            page_num = text_item["prov"][0].get("page_no", 1)
+
+        # Check if pipe-delimited
+        if '|' in text_content:
+            columns = [col.strip() for col in text_content.split('|')]
+
+            # Check if this is a header row
+            if is_header_row(columns) and detected_header is None:
+                detected_header = columns
+                continue
+
+            # Check if first column looks like a date (transaction row)
+            if len(columns) >= 3:
+                all_rows.append({
+                    "page": page_num,
+                    "source": "text",
+                    "columns": columns,
+                    "raw": text_content
+                })
+
+    # Extract from tables
+    for table in document_dict.get("tables", []):
+        page_num = 1
+        if table.get("prov") and len(table["prov"]) > 0:
+            page_num = table["prov"][0].get("page_no", 1)
+
+        if table.get("data") and table["data"].get("table_cells"):
+            # Group cells by row
+            row_map = {}
+            max_col = 0
+
+            for cell in table["data"]["table_cells"]:
+                row_idx = cell.get("start_row_offset_idx", cell.get("row_span", [0])[0] if cell.get("row_span") else 0)
+                col_idx = cell.get("start_col_offset_idx", cell.get("col_span", [0])[0] if cell.get("col_span") else 0)
+
+                if row_idx not in row_map:
+                    row_map[row_idx] = {}
+                row_map[row_idx][col_idx] = (cell.get("text") or "").strip()
+                max_col = max(max_col, col_idx)
+
+            # Convert to list format
+            for row_idx in sorted(row_map.keys()):
+                columns = []
+                for col_idx in range(max_col + 1):
+                    columns.append(row_map[row_idx].get(col_idx, ""))
+
+                # Check if this is a header row
+                if is_header_row(columns) and detected_header is None:
+                    detected_header = columns
+                    continue
+
+                # Add as transaction row
+                if len(columns) >= 3:
+                    all_rows.append({
+                        "page": page_num,
+                        "source": "table",
+                        "columns": columns,
+                        "raw": " | ".join(columns)
+                    })
+
+    # Sort by page number
+    all_rows.sort(key=lambda x: x["page"])
+
+    # Use detected header or create default
+    if detected_header is None:
+        detected_header = ["Date", "Narration", "Chq/Ref No", "Value Date", "Withdrawal", "Deposit", "Balance"]
+
+    # Normalize column count
+    num_cols = len(detected_header)
+    for row in all_rows:
+        while len(row["columns"]) < num_cols:
+            row["columns"].append("")
+        if len(row["columns"]) > num_cols:
+            row["columns"] = row["columns"][:num_cols]
+
+    return {
+        "header": detected_header,
+        "rows": all_rows,
+        "total_count": len(all_rows),
+        "text_source_count": sum(1 for r in all_rows if r["source"] == "text"),
+        "table_source_count": sum(1 for r in all_rows if r["source"] == "table"),
+    }
+
+
 # === FastAPI Application ===
 
 app = FastAPI(
@@ -453,6 +584,11 @@ async def convert_pdf_to_json(
         # Also get markdown representation for convenience
         markdown_content = result.document.export_to_markdown()
 
+        # Harmonize texts and tables into unified transactions
+        transactions_data = harmonize_transactions(document_dict)
+        logger.info(f"[{request_id}] Harmonized {transactions_data['total_count']} transactions "
+                    f"(text: {transactions_data['text_source_count']}, table: {transactions_data['table_source_count']})")
+
         # Build response
         total_duration = (datetime.utcnow() - start_time).total_seconds()
 
@@ -463,6 +599,7 @@ async def convert_pdf_to_json(
             "conversion_time_seconds": round(total_duration, 3),
             "document": document_dict,
             "markdown": markdown_content,  # Full markdown content
+            "transactions": transactions_data,  # Harmonized transactions
             "metadata": {
                 "file_size_bytes": file_size,
                 "conversion_timestamp": datetime.utcnow().isoformat() + "Z",

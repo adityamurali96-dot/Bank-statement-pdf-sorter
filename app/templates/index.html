@@ -617,6 +617,12 @@
 
         // Convert document to CSV
         function generateCSV(data) {
+            // Use harmonized transactions if available
+            if (data.transactions && data.transactions.rows && data.transactions.rows.length > 0) {
+                return generateCSVFromTransactions(data.transactions);
+            }
+
+            // Fallback to original logic
             const rows = [];
             const document = data.document;
 
@@ -684,6 +690,24 @@
 
             // Convert to CSV string
             return rows.map(row =>
+                row.map(cell => `"${cell}"`).join(',')
+            ).join('\n');
+        }
+
+        // Generate CSV from harmonized transactions
+        function generateCSVFromTransactions(transactions) {
+            const csvRows = [];
+
+            // Add header row
+            csvRows.push(transactions.header.map(h => (h || '').replace(/"/g, '""')));
+
+            // Add data rows
+            transactions.rows.forEach(row => {
+                csvRows.push(row.columns.map(col => (col || '').replace(/"/g, '""')));
+            });
+
+            // Convert to CSV string
+            return csvRows.map(row =>
                 row.map(cell => `"${cell}"`).join(',')
             ).join('\n');
         }

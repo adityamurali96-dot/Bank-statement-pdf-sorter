@@ -526,7 +526,7 @@
                     <div class="download-section">
                         <div class="download-title">Download All Formats</div>
                         <div class="download-buttons">
-                            <button class="download-btn" id="download-json">
+                            <button class="download-btn download-format" data-format="json" data-ext="json" data-mime="application/json">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                                     <polyline points="7 10 12 15 17 10"></polyline>
@@ -534,7 +534,7 @@
                                 </svg>
                                 JSON
                             </button>
-                            <button class="download-btn" id="download-markdown">
+                            <button class="download-btn download-format" data-format="markdown" data-ext="md" data-mime="text/markdown">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                                     <polyline points="7 10 12 15 17 10"></polyline>
@@ -542,7 +542,7 @@
                                 </svg>
                                 Markdown
                             </button>
-                            <button class="download-btn" id="download-csv">
+                            <button class="download-btn download-format" data-format="csv" data-ext="csv" data-mime="text/csv">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                                     <polyline points="7 10 12 15 17 10"></polyline>
@@ -550,7 +550,7 @@
                                 </svg>
                                 CSV
                             </button>
-                            <button class="download-btn secondary" id="download-metadata">
+                            <button class="download-btn secondary download-format" data-format="metadata" data-ext="json" data-mime="application/json">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                                     <polyline points="7 10 12 15 17 10"></polyline>
@@ -649,6 +649,29 @@
                                 'deposit', 'balance', 'debit', 'credit', 'chq', 'ref', 'value',
                                 'amount', 'transaction', 'details', 'remarks'];
 
+        // Helper to get cell row/column index from cell object
+        function getCellIndex(cell, type) {
+            const offsetKey = type === 'row' ? 'start_row_offset_idx' : 'start_col_offset_idx';
+            const spanKey = type === 'row' ? 'row_span' : 'col_span';
+            if (typeof cell[offsetKey] === 'number') return cell[offsetKey];
+            if (cell[spanKey]?.length > 0) return cell[spanKey][0];
+            return 0;
+        }
+
+        // Helper to parse table cells into row map structure
+        function parseTableCells(tableCells) {
+            const rowMap = {};
+            let maxCol = 0;
+            tableCells.forEach(cell => {
+                const rowIdx = getCellIndex(cell, 'row');
+                const colIdx = getCellIndex(cell, 'col');
+                if (!rowMap[rowIdx]) rowMap[rowIdx] = {};
+                rowMap[rowIdx][colIdx] = (cell.text || '').trim();
+                maxCol = Math.max(maxCol, colIdx);
+            });
+            return { rowMap, maxCol };
+        }
+
         // Convert document to CSV with smart bank statement parsing
         function generateCSV(data) {
             const document = data.document;
@@ -662,34 +685,7 @@
                     const pageNum = table.prov?.[0]?.page_no || 1;
 
                     if (table.data && table.data.table_cells) {
-                        // Group cells by row with proper index handling
-                        const rowMap = {};
-                        let maxCol = 0;
-
-                        table.data.table_cells.forEach(cell => {
-                            // Use start_row_offset_idx first (more reliable), then row_span
-                            // Never default to 0 if we have valid indices
-                            let rowIdx = null;
-                            if (typeof cell.start_row_offset_idx === 'number') {
-                                rowIdx = cell.start_row_offset_idx;
-                            } else if (cell.row_span && cell.row_span.length > 0) {
-                                rowIdx = cell.row_span[0];
-                            }
-                            // Only default to 0 if no valid index found
-                            if (rowIdx === null) rowIdx = 0;
-
-                            let colIdx = null;
-                            if (typeof cell.start_col_offset_idx === 'number') {
-                                colIdx = cell.start_col_offset_idx;
-                            } else if (cell.col_span && cell.col_span.length > 0) {
-                                colIdx = cell.col_span[0];
-                            }
-                            if (colIdx === null) colIdx = 0;
-
-                            if (!rowMap[rowIdx]) rowMap[rowIdx] = {};
-                            rowMap[rowIdx][colIdx] = (cell.text || '').trim();
-                            maxCol = Math.max(maxCol, colIdx);
-                        });
+                        const { rowMap, maxCol } = parseTableCells(table.data.table_cells);
 
                         // Convert to array format with consistent columns
                         Object.keys(rowMap)
@@ -883,21 +879,7 @@
                         const pageNum = table.prov?.[0]?.page_no || 1;
 
                         if (table.data && table.data.table_cells) {
-                            const rowMap = {};
-                            let maxCol = 0;
-
-                            table.data.table_cells.forEach(cell => {
-                                let rowIdx = typeof cell.start_row_offset_idx === 'number'
-                                    ? cell.start_row_offset_idx
-                                    : (cell.row_span?.[0] ?? 0);
-                                let colIdx = typeof cell.start_col_offset_idx === 'number'
-                                    ? cell.start_col_offset_idx
-                                    : (cell.col_span?.[0] ?? 0);
-
-                                if (!rowMap[rowIdx]) rowMap[rowIdx] = {};
-                                rowMap[rowIdx][colIdx] = (cell.text || '').trim();
-                                maxCol = Math.max(maxCol, colIdx);
-                            });
+                            const { rowMap, maxCol } = parseTableCells(table.data.table_cells);
 
                             Object.keys(rowMap)
                                 .map(Number)
@@ -1056,36 +1038,38 @@
             resultJson.textContent = content;
         }
 
+        // Format metadata for file extension and mime type
+        const formatMeta = {
+            json: { ext: 'json', mimeType: 'application/json' },
+            markdown: { ext: 'md', mimeType: 'text/markdown' },
+            csv: { ext: 'csv', mimeType: 'text/csv' },
+            metadata: { ext: 'json', mimeType: 'application/json' }
+        };
+
         // Get current content and file extension
         function getCurrentContent() {
-            let content = '';
-            let ext = '';
-            let mimeType = '';
+            const meta = formatMeta[currentTab] || formatMeta.json;
+            return {
+                content: getContentForFormat(currentTab),
+                ext: meta.ext,
+                mimeType: meta.mimeType
+            };
+        }
 
-            switch (currentTab) {
+        // Get content for a specific format
+        function getContentForFormat(format) {
+            switch (format) {
                 case 'json':
-                    content = JSON.stringify(conversionResult.document, null, 2);
-                    ext = 'json';
-                    mimeType = 'application/json';
-                    break;
+                    return JSON.stringify(conversionResult.document, null, 2);
                 case 'markdown':
-                    content = conversionResult.markdown || '';
-                    ext = 'md';
-                    mimeType = 'text/markdown';
-                    break;
+                    return conversionResult.markdown || '';
                 case 'csv':
-                    content = csvContent || generateCSV(conversionResult);
-                    ext = 'csv';
-                    mimeType = 'text/csv';
-                    break;
+                    return csvContent || generateCSV(conversionResult);
                 case 'metadata':
-                    content = JSON.stringify(conversionResult.metadata, null, 2);
-                    ext = 'json';
-                    mimeType = 'application/json';
-                    break;
+                    return JSON.stringify(conversionResult.metadata, null, 2);
+                default:
+                    return '';
             }
-
-            return { content, ext, mimeType };
         }
 
         // Copy to clipboard
@@ -1111,29 +1095,17 @@
             downloadFile(content, filename, mimeType);
         });
 
-        // Download buttons
-        document.getElementById('download-json').addEventListener('click', () => {
-            if (!conversionResult) return;
-            const content = JSON.stringify(conversionResult.document, null, 2);
-            downloadFile(content, `${getBaseFilename()}.json`, 'application/json');
-        });
-
-        document.getElementById('download-markdown').addEventListener('click', () => {
-            if (!conversionResult) return;
-            const content = conversionResult.markdown || '';
-            downloadFile(content, `${getBaseFilename()}.md`, 'text/markdown');
-        });
-
-        document.getElementById('download-csv').addEventListener('click', () => {
-            if (!conversionResult) return;
-            const content = csvContent || generateCSV(conversionResult);
-            downloadFile(content, `${getBaseFilename()}.csv`, 'text/csv');
-        });
-
-        document.getElementById('download-metadata').addEventListener('click', () => {
-            if (!conversionResult) return;
-            const content = JSON.stringify(conversionResult.metadata, null, 2);
-            downloadFile(content, `${getBaseFilename()}_metadata.json`, 'application/json');
+        // Download buttons - unified handler
+        document.querySelectorAll('.download-format').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (!conversionResult) return;
+                const format = btn.dataset.format;
+                const ext = btn.dataset.ext;
+                const mime = btn.dataset.mime;
+                const suffix = format === 'metadata' ? '_metadata' : '';
+                const content = getContentForFormat(format);
+                downloadFile(content, `${getBaseFilename()}${suffix}.${ext}`, mime);
+            });
         });
 
         // Convert button

@@ -22,9 +22,12 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+# Module-level constants
+DEBUG_MODE = os.getenv("DEBUG", "false").lower() == "true"
+
 # Configure logging before any other imports
 logging.basicConfig(
-    level=logging.DEBUG if os.getenv("DEBUG", "false").lower() == "true" else logging.INFO,
+    level=logging.DEBUG if DEBUG_MODE else logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
@@ -147,6 +150,21 @@ def generate_request_id() -> str:
     return f"req_{uuid.uuid4().hex[:12]}"
 
 
+def get_request_id(request: Request) -> str:
+    """Get request ID from request state or generate a new one"""
+    return getattr(request.state, "request_id", generate_request_id())
+
+
+def get_utc_timestamp() -> str:
+    """Get current UTC timestamp in ISO format"""
+    return datetime.utcnow().isoformat() + "Z"
+
+
+def is_converter_ready(app_instance: FastAPI) -> bool:
+    """Check if the document converter is initialized and ready"""
+    return hasattr(app_instance.state, "converter") and app_instance.state.converter is not None
+
+
 def get_error_response(
     error_code: str,
     message: str,
@@ -160,7 +178,7 @@ def get_error_response(
         error_code=error_code,
         message=message,
         details=details,
-        timestamp=datetime.utcnow().isoformat() + "Z",
+        timestamp=get_utc_timestamp(),
         request_id=request_id,
         traceback=traceback.format_exc() if include_traceback else None,
     )
@@ -205,7 +223,7 @@ templates = Jinja2Templates(directory=str(templates_dir))
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler for uncaught errors"""
-    request_id = getattr(request.state, "request_id", generate_request_id())
+    request_id = get_request_id(request)
 
     logger.exception(f"[{request_id}] Unhandled exception: {exc}")
 
@@ -215,14 +233,14 @@ async def global_exception_handler(request: Request, exc: Exception):
         request_id=request_id,
         status_code=500,
         details=str(exc),
-        include_traceback=os.getenv("DEBUG", "false").lower() == "true",
+        include_traceback=DEBUG_MODE,
     )
 
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     """Handler for HTTP exceptions"""
-    request_id = getattr(request.state, "request_id", generate_request_id())
+    request_id = get_request_id(request)
 
     logger.warning(f"[{request_id}] HTTP exception: {exc.status_code} - {exc.detail}")
 
@@ -290,23 +308,23 @@ async def api_info():
 @app.get("/health", response_model=HealthResponse)
 async def health_check(request: Request):
     """Health check endpoint with system information"""
-    request_id = getattr(request.state, "request_id", generate_request_id())
+    request_id = get_request_id(request)
 
     logger.debug(f"[{request_id}] Health check requested")
 
     docling_status = "available" if DOCLING_AVAILABLE else "unavailable"
-    converter_status = "initialized" if (hasattr(app.state, "converter") and app.state.converter) else "not_initialized"
+    converter_status = "initialized" if is_converter_ready(app) else "not_initialized"
 
     return HealthResponse(
         status="healthy" if DOCLING_AVAILABLE else "degraded",
         docling_available=DOCLING_AVAILABLE,
         version="1.0.0",
-        timestamp=datetime.utcnow().isoformat() + "Z",
+        timestamp=get_utc_timestamp(),
         environment={
             "python_version": sys.version.split()[0],
             "docling_status": docling_status,
             "converter_status": converter_status,
-            "debug_mode": os.getenv("DEBUG", "false"),
+            "debug_mode": str(DEBUG_MODE).lower(),
         },
     )
 
@@ -330,7 +348,7 @@ async def convert_pdf_to_json(
     - CONVERSION_ERROR: Failed to convert PDF to JSON
     - SERIALIZATION_ERROR: Failed to serialize document to JSON
     """
-    request_id = getattr(request.state, "request_id", generate_request_id())
+    request_id = get_request_id(request)
     start_time = datetime.utcnow()
 
     logger.info(f"[{request_id}] PDF conversion requested")
@@ -348,7 +366,7 @@ async def convert_pdf_to_json(
         )
 
     # Check if converter is initialized
-    if not hasattr(app.state, "converter") or app.state.converter is None:
+    if not is_converter_ready(app):
         return get_error_response(
             error_code="CONVERTER_NOT_INITIALIZED",
             message="Document converter is not initialized",
@@ -358,21 +376,13 @@ async def convert_pdf_to_json(
         )
 
     # Validate file type
-    if not file.filename:
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
         return get_error_response(
             error_code="INVALID_FILE_TYPE",
-            message="No filename provided",
+            message="No filename provided" if not file.filename else "Only PDF files are accepted",
             request_id=request_id,
             status_code=400,
-        )
-
-    if not file.filename.lower().endswith(".pdf"):
-        return get_error_response(
-            error_code="INVALID_FILE_TYPE",
-            message="Only PDF files are accepted",
-            request_id=request_id,
-            status_code=400,
-            details=f"Received file: {file.filename}",
+            details=f"Received file: {file.filename}" if file.filename else None,
         )
 
     # Read file content
@@ -465,7 +475,7 @@ async def convert_pdf_to_json(
             "markdown": markdown_content,  # Full markdown content
             "metadata": {
                 "file_size_bytes": file_size,
-                "conversion_timestamp": datetime.utcnow().isoformat() + "Z",
+                "conversion_timestamp": get_utc_timestamp(),
                 "markdown_preview": markdown_content[:1000] if markdown_content else None,
                 "has_tables": bool(document_dict.get("tables")),
                 "has_pictures": bool(document_dict.get("pictures")),
@@ -500,7 +510,7 @@ async def convert_pdf_to_markdown(
 
     This endpoint is a simpler alternative that returns the document as markdown text.
     """
-    request_id = getattr(request.state, "request_id", generate_request_id())
+    request_id = get_request_id(request)
 
     logger.info(f"[{request_id}] Markdown conversion requested for: {file.filename}")
 
@@ -531,9 +541,9 @@ async def debug_info(request: Request):
     Debug endpoint showing system information
     Only available when DEBUG=true
     """
-    request_id = getattr(request.state, "request_id", generate_request_id())
+    request_id = get_request_id(request)
 
-    if os.getenv("DEBUG", "false").lower() != "true":
+    if not DEBUG_MODE:
         return get_error_response(
             error_code="DEBUG_DISABLED",
             message="Debug endpoint is disabled",
@@ -557,7 +567,7 @@ async def debug_info(request: Request):
             "import_error": DOCLING_IMPORT_ERROR if not DOCLING_AVAILABLE else None,
         },
         "converter": {
-            "initialized": hasattr(app.state, "converter") and app.state.converter is not None,
+            "initialized": is_converter_ready(app),
         },
     }
 
@@ -576,6 +586,6 @@ if __name__ == "__main__":
         "main:app",
         host=host,
         port=port,
-        reload=os.getenv("DEBUG", "false").lower() == "true",
-        log_level="debug" if os.getenv("DEBUG", "false").lower() == "true" else "info",
+        reload=DEBUG_MODE,
+        log_level="debug" if DEBUG_MODE else "info",
     )

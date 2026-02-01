@@ -615,13 +615,16 @@
             return selectedFile.name.replace(/\.pdf$/i, '');
         }
 
+        // Delimiter used for all extracted content (configurable)
+        const CELL_DELIMITER = ' | ';
+
         // Convert document to CSV
         function generateCSV(data) {
             const rows = [];
             const document = data.document;
 
             // Add header row
-            rows.push(['Page', 'Type', 'Content']);
+            rows.push(['Page', 'Content']);
 
             // Extract text content from the document
             if (document.texts) {
@@ -629,12 +632,12 @@
                     const pageNum = text.prov?.[0]?.page_no || 1;
                     const content = text.text || '';
                     if (content.trim()) {
-                        rows.push([pageNum, 'text', content.replace(/"/g, '""')]);
+                        rows.push([pageNum, content.replace(/"/g, '""')]);
                     }
                 });
             }
 
-            // Extract tables if present
+            // Extract tables if present (using same text format with delimiter)
             if (document.tables) {
                 document.tables.forEach((table, tableIdx) => {
                     const pageNum = table.prov?.[0]?.page_no || 1;
@@ -652,14 +655,14 @@
                             });
                         });
 
-                        // Sort and output rows
+                        // Sort and output rows with consistent delimiter
                         Object.keys(rowMap).sort((a, b) => a - b).forEach(rowIdx => {
                             const cells = rowMap[rowIdx].sort((a, b) => a.col - b.col);
-                            const rowContent = cells.map(c => c.text).join(' | ');
-                            rows.push([pageNum, 'table', rowContent.replace(/"/g, '""')]);
+                            const rowContent = cells.map(c => c.text).join(CELL_DELIMITER);
+                            rows.push([pageNum, rowContent.replace(/"/g, '""')]);
                         });
                     } else if (table.text) {
-                        rows.push([pageNum, 'table', table.text.replace(/"/g, '""')]);
+                        rows.push([pageNum, table.text.replace(/"/g, '""')]);
                     }
                 });
             }
@@ -675,8 +678,13 @@
                         if (pageMatch) {
                             currentPage = parseInt(pageMatch[1]);
                         } else {
-                            const type = line.startsWith('|') ? 'table' : 'text';
-                            rows.push([currentPage, type, line.replace(/"/g, '""')]);
+                            // Normalize markdown table lines to use consistent delimiter
+                            let content = line;
+                            if (line.startsWith('|') && line.endsWith('|')) {
+                                // Remove leading/trailing pipes and normalize delimiters
+                                content = line.slice(1, -1).split('|').map(s => s.trim()).join(CELL_DELIMITER);
+                            }
+                            rows.push([currentPage, content.replace(/"/g, '""')]);
                         }
                     }
                 });

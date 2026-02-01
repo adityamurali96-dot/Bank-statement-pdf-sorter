@@ -618,80 +618,338 @@
         // Delimiter used for all extracted content (configurable)
         const CELL_DELIMITER = ' | ';
 
-        // Convert document to CSV
+        // Date patterns for bank statements (DD/MM/YYYY, DD-MM-YYYY, DD/MM/YY, etc.)
+        const datePatterns = [
+            /^\d{2}[\/\-]\d{2}[\/\-]\d{4}$/,  // DD/MM/YYYY or DD-MM-YYYY
+            /^\d{2}[\/\-]\d{2}[\/\-]\d{2}$/,  // DD/MM/YY or DD-MM-YY
+            /^\d{2}\s+[A-Za-z]{3}\s+\d{2,4}$/, // DD Mon YYYY
+            /^\d{2}[\/\-][A-Za-z]{3}[\/\-]\d{2,4}$/, // DD/Mon/YYYY
+            /^\d{4}[\/\-]\d{2}[\/\-]\d{2}$/,  // YYYY/MM/DD or YYYY-MM-DD
+        ];
+
+        // Check if text looks like a date
+        function isDateCell(text) {
+            if (!text || typeof text !== 'string') return false;
+            const trimmed = text.trim();
+            return datePatterns.some(pattern => pattern.test(trimmed));
+        }
+
+        // Check if text looks like an amount (currency value)
+        function isAmountCell(text) {
+            if (!text || typeof text !== 'string') return false;
+            const trimmed = text.trim().replace(/,/g, '');
+            // Match amounts like 1234.56, 1,234.56, (1234.56) for negative, -1234.56
+            return /^[\(\-]?\d+\.?\d*\)?$/.test(trimmed) ||
+                   /^\d{1,3}(,\d{3})*(\.\d{2})?$/.test(text.trim()) ||
+                   /^[\(\-]?\d{1,3}(,\d{3})*(\.\d{2})?\)?$/.test(text.trim());
+        }
+
+        // Header keywords for bank statement detection
+        const headerKeywords = ['date', 'narration', 'description', 'particulars', 'withdrawal',
+                                'deposit', 'balance', 'debit', 'credit', 'chq', 'ref', 'value',
+                                'amount', 'transaction', 'details', 'remarks'];
+
+        // Convert document to CSV with smart bank statement parsing
         function generateCSV(data) {
-            const rows = [];
             const document = data.document;
+            const allTableRows = [];
+            let detectedAsTable = false;
 
-            // Add header row
-            rows.push(['Page', 'Content']);
-
-            // Extract text content from the document
-            if (document.texts) {
-                document.texts.forEach((text, idx) => {
-                    const pageNum = text.prov?.[0]?.page_no || 1;
-                    const content = text.text || '';
-                    if (content.trim()) {
-                        rows.push([pageNum, content.replace(/"/g, '""')]);
-                    }
-                });
-            }
-
-            // Extract tables if present (using same text format with delimiter)
-            if (document.tables) {
+            // Extract all table data with proper structure
+            if (document.tables && document.tables.length > 0) {
+                detectedAsTable = true;
                 document.tables.forEach((table, tableIdx) => {
                     const pageNum = table.prov?.[0]?.page_no || 1;
 
-                    // Try to extract table data
                     if (table.data && table.data.table_cells) {
-                        // Group cells by row
+                        // Group cells by row with proper index handling
                         const rowMap = {};
+                        let maxCol = 0;
+
                         table.data.table_cells.forEach(cell => {
-                            const rowIdx = cell.row_span?.[0] || cell.start_row_offset_idx || 0;
-                            if (!rowMap[rowIdx]) rowMap[rowIdx] = [];
-                            rowMap[rowIdx].push({
-                                col: cell.col_span?.[0] || cell.start_col_offset_idx || 0,
-                                text: cell.text || ''
-                            });
+                            // Use start_row_offset_idx first (more reliable), then row_span
+                            // Never default to 0 if we have valid indices
+                            let rowIdx = null;
+                            if (typeof cell.start_row_offset_idx === 'number') {
+                                rowIdx = cell.start_row_offset_idx;
+                            } else if (cell.row_span && cell.row_span.length > 0) {
+                                rowIdx = cell.row_span[0];
+                            }
+                            // Only default to 0 if no valid index found
+                            if (rowIdx === null) rowIdx = 0;
+
+                            let colIdx = null;
+                            if (typeof cell.start_col_offset_idx === 'number') {
+                                colIdx = cell.start_col_offset_idx;
+                            } else if (cell.col_span && cell.col_span.length > 0) {
+                                colIdx = cell.col_span[0];
+                            }
+                            if (colIdx === null) colIdx = 0;
+
+                            if (!rowMap[rowIdx]) rowMap[rowIdx] = {};
+                            rowMap[rowIdx][colIdx] = (cell.text || '').trim();
+                            maxCol = Math.max(maxCol, colIdx);
                         });
 
-                        // Sort and output rows with consistent delimiter
-                        Object.keys(rowMap).sort((a, b) => a - b).forEach(rowIdx => {
-                            const cells = rowMap[rowIdx].sort((a, b) => a.col - b.col);
-                            const rowContent = cells.map(c => c.text).join(CELL_DELIMITER);
-                            rows.push([pageNum, rowContent.replace(/"/g, '""')]);
-                        });
-                    } else if (table.text) {
-                        rows.push([pageNum, table.text.replace(/"/g, '""')]);
+                        // Convert to array format with consistent columns
+                        Object.keys(rowMap)
+                            .map(Number)
+                            .sort((a, b) => a - b)
+                            .forEach(rowIdx => {
+                                const rowData = [];
+                                for (let col = 0; col <= maxCol; col++) {
+                                    rowData.push(rowMap[rowIdx][col] || '');
+                                }
+                                allTableRows.push({
+                                    page: pageNum,
+                                    tableIdx: tableIdx,
+                                    rowIdx: rowIdx,
+                                    cells: rowData,
+                                    numCols: rowData.filter(c => c !== '').length
+                                });
+                            });
                     }
                 });
             }
 
-            // If no structured data, try to extract from markdown
-            if (rows.length === 1 && data.markdown) {
-                const lines = data.markdown.split('\n');
-                let currentPage = 1;
-                lines.forEach(line => {
-                    if (line.trim()) {
-                        // Check for page markers
-                        const pageMatch = line.match(/^#+\s*Page\s*(\d+)/i);
-                        if (pageMatch) {
-                            currentPage = parseInt(pageMatch[1]);
-                        } else {
-                            // Normalize markdown table lines to use consistent delimiter
-                            let content = line;
-                            if (line.startsWith('|') && line.endsWith('|')) {
-                                // Remove leading/trailing pipes and normalize delimiters
-                                content = line.slice(1, -1).split('|').map(s => s.trim()).join(CELL_DELIMITER);
-                            }
-                            rows.push([currentPage, content.replace(/"/g, '""')]);
-                        }
+            // Detect header row and expected column count
+            let headerRow = null;
+            let expectedCols = 0;
+
+            for (const row of allTableRows) {
+                const lowerCells = row.cells.map(c => c.toLowerCase());
+                const matchCount = headerKeywords.filter(kw =>
+                    lowerCells.some(cell => cell.includes(kw))
+                ).length;
+
+                if (matchCount >= 2) {
+                    headerRow = row;
+                    expectedCols = row.cells.length;
+                    break;
+                }
+            }
+
+            // If no header found, try to detect from column structure
+            if (!expectedCols && allTableRows.length > 0) {
+                // Find most common column count
+                const colCounts = {};
+                allTableRows.forEach(row => {
+                    const count = row.cells.filter(c => c !== '').length;
+                    if (count > 0) {
+                        colCounts[count] = (colCounts[count] || 0) + 1;
                     }
                 });
+                const sortedCounts = Object.entries(colCounts).sort((a, b) => b[1] - a[1]);
+                expectedCols = parseInt(sortedCounts[0]?.[0] || '6');
+            }
+
+            // Process rows: merge continuation lines with previous transaction
+            const processedRows = [];
+            let currentTransaction = null;
+
+            for (const row of allTableRows) {
+                const cells = row.cells;
+                const firstCell = cells[0] || '';
+                const hasDate = isDateCell(firstCell);
+                const isHeader = headerRow && row.rowIdx === headerRow.rowIdx && row.tableIdx === headerRow.tableIdx;
+                const nonEmptyCells = cells.filter(c => c !== '').length;
+
+                // Skip header row (we'll add our own or use detected)
+                if (isHeader) {
+                    continue;
+                }
+
+                // Check if this is a complete transaction row (has date in first column)
+                if (hasDate && nonEmptyCells >= Math.max(2, Math.floor(expectedCols * 0.4))) {
+                    // Save previous transaction
+                    if (currentTransaction) {
+                        processedRows.push(currentTransaction);
+                    }
+                    // Start new transaction
+                    currentTransaction = {
+                        page: row.page,
+                        cells: [...cells],
+                        originalCols: nonEmptyCells
+                    };
+                }
+                // This is a continuation row (no date, likely multi-line narration)
+                else if (currentTransaction && nonEmptyCells > 0 && nonEmptyCells < Math.floor(expectedCols * 0.5)) {
+                    // Merge with current transaction's narration column
+                    // Find the narration column (usually column 1 or the first text-heavy column after date)
+                    let narrationCol = 1;
+
+                    // Try to find the best column to append to
+                    for (let i = 1; i < currentTransaction.cells.length; i++) {
+                        if (currentTransaction.cells[i] && currentTransaction.cells[i].length > 10) {
+                            narrationCol = i;
+                            break;
+                        }
+                    }
+
+                    // Append continuation text to narration
+                    const continuationText = cells.filter(c => c !== '').join(' ').trim();
+                    if (continuationText && currentTransaction.cells[narrationCol] !== undefined) {
+                        currentTransaction.cells[narrationCol] += ' ' + continuationText;
+                    }
+                }
+                // Orphan row with some data but no clear parent
+                else if (nonEmptyCells > 0) {
+                    // Save any pending transaction first
+                    if (currentTransaction) {
+                        processedRows.push(currentTransaction);
+                        currentTransaction = null;
+                    }
+
+                    // Check if it looks like a data row (has amounts or sufficient columns)
+                    const hasAmounts = cells.some(c => isAmountCell(c));
+                    if (hasAmounts || nonEmptyCells >= Math.floor(expectedCols * 0.6)) {
+                        processedRows.push({
+                            page: row.page,
+                            cells: [...cells],
+                            originalCols: nonEmptyCells
+                        });
+                    }
+                    // Otherwise, if we have meaningful content, still keep it but mark for review
+                    else if (nonEmptyCells >= 2) {
+                        processedRows.push({
+                            page: row.page,
+                            cells: [...cells],
+                            originalCols: nonEmptyCells,
+                            isPartial: true
+                        });
+                    }
+                }
+            }
+
+            // Don't forget the last transaction
+            if (currentTransaction) {
+                processedRows.push(currentTransaction);
+            }
+
+            // Build CSV output
+            const csvRows = [];
+
+            // If we detected table structure, use smart formatting
+            if (detectedAsTable && processedRows.length > 0) {
+                // Add header
+                if (headerRow) {
+                    csvRows.push(headerRow.cells.map(c => c.replace(/"/g, '""')));
+                } else {
+                    // Default header for bank statements
+                    const defaultHeader = ['Date', 'Narration', 'Chq/Ref No', 'Value Date', 'Withdrawal', 'Deposit', 'Balance'];
+                    // Adjust header to match expected columns
+                    while (defaultHeader.length < expectedCols) {
+                        defaultHeader.push('Column ' + (defaultHeader.length + 1));
+                    }
+                    csvRows.push(defaultHeader.slice(0, Math.max(expectedCols, 7)));
+                }
+
+                // Add data rows with consistent column count
+                const headerCols = csvRows[0].length;
+                processedRows.forEach(row => {
+                    let rowCells = [...row.cells];
+
+                    // Ensure consistent column count
+                    while (rowCells.length < headerCols) {
+                        rowCells.push('');
+                    }
+                    if (rowCells.length > headerCols) {
+                        rowCells = rowCells.slice(0, headerCols);
+                    }
+
+                    csvRows.push(rowCells.map(c => (c || '').replace(/"/g, '""')));
+                });
+            }
+
+            // If no table data or empty result, fall back to text extraction with Type column
+            if (csvRows.length <= 1) {
+                csvRows.length = 0; // Clear
+                csvRows.push(['Page', 'Type', 'Content']);
+
+                // Extract text content
+                if (document.texts) {
+                    document.texts.forEach((text) => {
+                        const pageNum = text.prov?.[0]?.page_no || 1;
+                        const content = (text.text || '').trim();
+                        if (content) {
+                            csvRows.push([pageNum, 'text', content.replace(/"/g, '""')]);
+                        }
+                    });
+                }
+
+                // Extract tables as flattened rows with Type indicator
+                if (document.tables) {
+                    document.tables.forEach((table) => {
+                        const pageNum = table.prov?.[0]?.page_no || 1;
+
+                        if (table.data && table.data.table_cells) {
+                            const rowMap = {};
+                            let maxCol = 0;
+
+                            table.data.table_cells.forEach(cell => {
+                                let rowIdx = typeof cell.start_row_offset_idx === 'number'
+                                    ? cell.start_row_offset_idx
+                                    : (cell.row_span?.[0] ?? 0);
+                                let colIdx = typeof cell.start_col_offset_idx === 'number'
+                                    ? cell.start_col_offset_idx
+                                    : (cell.col_span?.[0] ?? 0);
+
+                                if (!rowMap[rowIdx]) rowMap[rowIdx] = {};
+                                rowMap[rowIdx][colIdx] = (cell.text || '').trim();
+                                maxCol = Math.max(maxCol, colIdx);
+                            });
+
+                            Object.keys(rowMap)
+                                .map(Number)
+                                .sort((a, b) => a - b)
+                                .forEach(rowIdx => {
+                                    const rowCells = [];
+                                    for (let col = 0; col <= maxCol; col++) {
+                                        rowCells.push(rowMap[rowIdx][col] || '');
+                                    }
+                                    const rowContent = rowCells.join(CELL_DELIMITER);
+                                    if (rowContent.trim()) {
+                                        csvRows.push([pageNum, 'table', rowContent.replace(/"/g, '""')]);
+                                    }
+                                });
+                        } else if (table.text) {
+                            csvRows.push([pageNum, 'table', table.text.replace(/"/g, '""')]);
+                        }
+                    });
+                }
+
+                // Try markdown as final fallback
+                if (csvRows.length <= 1 && data.markdown) {
+                    const lines = data.markdown.split('\n');
+                    let currentPage = 1;
+                    lines.forEach(line => {
+                        if (line.trim()) {
+                            const pageMatch = line.match(/^#+\s*Page\s*(\d+)/i);
+                            if (pageMatch) {
+                                currentPage = parseInt(pageMatch[1]);
+                            } else {
+                                // Detect if line is from a table
+                                const isTableLine = line.startsWith('|') || line.includes(' | ');
+                                const type = isTableLine ? 'table' : 'text';
+
+                                let content = line;
+                                if (line.startsWith('|') && line.endsWith('|')) {
+                                    // Normalize markdown table lines
+                                    content = line.slice(1, -1).split('|').map(s => s.trim()).join(CELL_DELIMITER);
+                                }
+
+                                // Skip markdown separator lines (---|---|---)
+                                if (!/^[\s\-\|:]+$/.test(content)) {
+                                    csvRows.push([currentPage, type, content.replace(/"/g, '""')]);
+                                }
+                            }
+                        }
+                    });
+                }
             }
 
             // Convert to CSV string
-            return rows.map(row =>
+            return csvRows.map(row =>
                 row.map(cell => `"${cell}"`).join(',')
             ).join('\n');
         }
